@@ -33,12 +33,13 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ## Task Right-Sizing
 
-A task is the smallest unit that carries its own test cycle and is worth a
-fresh reviewer's gate. When drawing task boundaries: fold setup,
-configuration, scaffolding, and documentation steps into the task whose
-deliverable needs them; split only where a reviewer could meaningfully
-reject one task while approving its neighbor. Each task ends with an
-independently testable deliverable.
+A task is one commit that a person can read and understand in about ten
+minutes: one idea, its own test cycle, and an independently testable
+deliverable. Your human partner reads every task's code before committing
+it, so the task boundary is also their reading boundary. Fold setup,
+configuration, scaffolding, and documentation into the task whose
+deliverable needs them only while the task stays within that limit;
+otherwise they become a task of their own. When in doubt, split.
 
 ## Step Granularity
 
@@ -56,7 +57,7 @@ independently testable deliverable.
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:guided-execution (default), superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -66,6 +67,11 @@ independently testable deliverable.
 
 **Spec:** [path to the spec/design doc this plan implements — the plan
 argues from the spec, so the spec travels with it; executors read both]
+
+**Fallback executor:** [superpowers:subagent-driven-development or
+superpowers:executing-plans — the one guided-execution hands the remaining
+tasks to when your partner says "procedi"; pick it the way you would
+recommend between the two at handoff]
 
 ## Global Constraints
 
@@ -188,14 +194,18 @@ them to review the plan and choose an execution method before implementation.
 
 **"Plan complete and saved to `docs/superpowers/plans/<filename>.md`. Please review the plan. Which execution approach would you prefer?**
 
+- **Guided** - I implement one task at a time, write a short report on what the code does and the choices I made, and stop. You read the code and make the commit; "avvia il prossimo" runs one more task, "procedi" runs the rest automatically with the fallback executor.
 - **Subagent-driven** - A fresh subagent implements each task and a fresh reviewer checks it before the next one starts, then a whole-branch review at the end. Most thorough; costs a fresh context per task and per review.
 - **Native** - I implement every task myself in this session, the way this harness runs work, then one fresh reviewer on the most capable model checks the whole branch. Cheapest and fastest; no independent review until the end. Runs well with a mid-tier session model, since the plan carries the design.
 
-**For this plan I recommend <one of the two>, because <one sentence from the plan: how much the tasks depend on each other's interfaces, how many there are, what a shipped mistake would cost>. Does the plan capture what you want, and which approach should we use?"**
+**I recommend Guided by default: it keeps you able to read and own every commit. <If the plan gives a reason to prefer another — say, many tasks you already understand well — name it in one sentence.> Does the plan capture what you want, and which approach should we use?"**
 
 **When an execution method has already been supplied:**
 
 **"Plan complete and saved to `docs/superpowers/plans/<filename>.md`. Please review the plan. Does it capture what you want?"**
+
+**If Guided chosen:**
+- **REQUIRED SUB-SKILL:** Use superpowers:guided-execution
 
 **If Subagent-driven chosen:**
 - **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
