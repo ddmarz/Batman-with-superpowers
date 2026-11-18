@@ -85,6 +85,10 @@ while :; do
       break 2
     fi
   done
+  # The top of a working tree (.git is a directory in a main checkout, a
+  # file in a linked worktree): a marker above it belongs to another
+  # checkout, such as the main one that holds this worktree in .worktrees/.
+  [[ -e $dir/.git ]] && break
   parent="${dir%/*}"
   [[ -z $parent || $parent == "$dir" ]] && break
   dir="$parent"

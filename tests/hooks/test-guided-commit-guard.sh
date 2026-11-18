@@ -82,6 +82,12 @@ expect_allow "marker: echo commit allowed" Bash 'echo commit' "$guided"
 expect_allow "marker: git status allowed" Bash 'git status' "$guided"
 expect_allow "outside the repo: commit allowed" Bash 'git commit -m x' "$outside"
 
+# A nested working tree (a git worktree has a .git *file*) is another
+# checkout: the guided marker above it is not its business.
+mkdir -p "$guided/.worktrees/other/src"
+printf 'gitdir: /somewhere/.git/worktrees/other\n' > "$guided/.worktrees/other/.git"
+expect_allow "nested worktree under a guided checkout: commit allowed" Bash 'git commit -m x' "$guided/.worktrees/other/src"
+
 run_guard Bash 'git commit -m x' "$guided"
 if [[ "$OUT" == *guided-execution* && "$OUT" == *docs/plans/my-plan.md* ]]; then
     pass "deny reason names guided-execution and the plan"
