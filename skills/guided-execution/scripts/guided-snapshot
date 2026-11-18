@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Photograph the working tree as a git tree object and print its SHA.
+#
+# The tree holds every file git would see after `git add -A`: tracked files
+# as they are on disk now, plus untracked files, minus ignored ones. Guided
+# execution takes one snapshot when a task starts and one when it ends; the
+# diff between the two is that task's work alone, even when earlier tasks
+# are still uncommitted (your human partner commits when they choose).
+#
+# Nothing the partner sees changes: the work happens in a throwaway copy of
+# the index (GIT_INDEX_FILE), so what they staged stays staged, and the
+# working tree is only read. The only trace is loose objects in .git, which
+# git's own gc cleans up.
+#
+# -C DIR runs as if started in DIR, the way git -C does.
+#
+# Usage: guided-snapshot [-C DIR]
+set -euo pipefail
+
+if [ "${1:-}" = "-C" ]; then
+  [ -d "${2:-}" ] || { echo "bad -C directory: ${2:-}" >&2; exit 2; }
+  cd "$2"
+  shift 2
+fi
+if [ $# -ne 0 ]; then
+  echo "usage: guided-snapshot [-C DIR]" >&2
+  exit 2
+fi
+
+sdd="$(cd "$(dirname "$0")/../../subagent-driven-development/scripts" && pwd)"
+repo=$("${BASH:-bash}" "$sdd/sdd-repo" --with-commit)
+cd "$repo"
+
+real_index=$(git rev-parse --git-path index)
+tmp_index=$(mktemp)
+trap 'rm -f "$tmp_index"' EXIT
+if [ -f "$real_index" ]; then
+  cp "$real_index" "$tmp_index"
+else
+  rm -f "$tmp_index"
+fi
+
+GIT_INDEX_FILE="$tmp_index" git add -A
+GIT_INDEX_FILE="$tmp_index" git write-tree

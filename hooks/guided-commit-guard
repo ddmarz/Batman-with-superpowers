@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# PreToolUse hook (Bash and PowerShell tools): deny the agent's `git commit`
+# while guided execution is active.
+#
+# Guided execution is active when a .superpowers/sdd/<plan>/guided marker
+# exists in the command's cwd or any directory above it. The marker holds the
+# plan's path; guided-execution's scripts create and remove it. In guided
+# mode your human partner makes every commit, so the agent is told to signal
+# the commit instead.
+#
+# This runs before every Bash/PowerShell call, so it must be cheap: when the
+# input doesn't mention "commit" it exits before any fork. Everything below
+# that check uses only builtins too (no jq: Superpowers has no dependencies).
+#
+# Allowing = exit 0 with no output. Denying = exit 0 with a JSON decision.
+
+input=""
+IFS= read -r -d '' input || true
+[[ $input == *commit* ]] || exit 0
+
+# json_value KEY: set REPLY to the unescaped value of the first "KEY":"..."
+# string in the input. Returns 1 when the key isn't there.
+json_value() {
+  local re="\"$1\""'[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+  REPLY=""
+  [[ $input =~ $re ]] || return 1
+  local s="${BASH_REMATCH[1]}"
+  s="${s//\\\\/$'\x01'}"
+  s="${s//\\\"/\"}"
+  s="${s//\\n/$'\n'}"
+  s="${s//\\t/$'\t'}"
+  s="${s//$'\x01'/\\}"
+  REPLY="$s"
+}
+
+# is_git_commit CMD: true when some segment of CMD runs `git ... commit`,
+# where "..." is only git's global options (-C dir, -c k=v, --flags).
+is_git_commit() {
+  local cmd="$1" seg t i n found
+  local -a w
+  cmd="${cmd//&&/$'\n'}"
+  cmd="${cmd//||/$'\n'}"
+  cmd="${cmd//;/$'\n'}"
+  cmd="${cmd//|/$'\n'}"
+  while IFS= read -r seg; do
+    read -r -a w <<< "$seg"
+    n=${#w[@]}
+    i=0
+    found=0
+    while (( i < n )); do
+      t="${w[i]}"
+      if (( found == 0 )); then
+        case "$t" in
+          git|*/git|git.exe|*/git.exe|*\\git.exe) found=1 ;;
+        esac
+        i=$((i + 1))
+        continue
+      fi
+      case "$t" in
+        -C|-c|--git-dir|--work-tree|--namespace) i=$((i + 2)) ;;
+        -*) i=$((i + 1)) ;;
+        commit) return 0 ;;
+        *) found=0; i=$((i + 1)) ;;
+      esac
+    done
+  done <<< "$cmd"
+  return 1
+}
+
+json_value command || exit 0
+is_git_commit "$REPLY" || exit 0
+
+if json_value cwd && [[ -n $REPLY ]]; then
+  dir="${REPLY//\\//}"
+else
+  dir="$PWD"
+fi
+dir="${dir%/}"
+
+marker=""
+while :; do
+  for m in "$dir"/.superpowers/sdd/*/guided; do
+    if [[ -f $m ]]; then
+      marker="$m"
+      break 2
+    fi
+  done
+  parent="${dir%/*}"
+  [[ -z $parent || $parent == "$dir" ]] && break
+  dir="$parent"
+done
+[[ -n $marker ]] || exit 0
+
+plan=""
+IFS= read -r plan < "$marker" || true
+
+reason="Guided execution is active for plan ${plan} in this working tree: your human partner makes every commit. Do not commit and do not retry. Signal the commit instead (why now, what goes in, suggested message) and stop. If you are resuming this plan with executing-plans or subagent-driven-development, switch to superpowers:guided-execution. Guided mode ends when your partner says \"procedi\"."
+reason="${reason//\\/\\\\}"
+reason="${reason//\"/\\\"}"
+
+trap '' PIPE
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason" 2>/dev/null || true
+exit 0
