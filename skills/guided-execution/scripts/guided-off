@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Turn guided mode off for one plan: remove the <workspace>/guided marker, so
+# hooks/guided-commit-guard stops denying `git commit` in this working tree.
+# Guided execution calls it when your human partner says "procedi" (the rest
+# of the plan runs with automatic commits) and before
+# finishing-a-development-branch. Safe to call when guided mode is already off.
+#
+# Usage: guided-off PLAN_FILE
+# Prints: guided: off
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: guided-off PLAN_FILE" >&2
+  exit 2
+fi
+
+sdd="$(cd "$(dirname "$0")/../../subagent-driven-development/scripts" && pwd)"
+dir=$("${BASH:-bash}" "$sdd/sdd-workspace" "$1")
+rm -f "$dir/guided"
+echo "guided: off"

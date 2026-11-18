@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Close one task of a guided plan execution in a single call: run the task's
+# test command (full output kept in the workspace, tail printed) and — only
+# if it passes — photograph the working tree again, save this task's diff
+# (BASE tree → new tree: this task's work alone), print its stat, and append
+# the completion line to the ledger. A failing command records nothing.
+#
+# The ledger line starts with "Task <N>: complete", the prefix executing-plans
+# and subagent-driven-development resume from, so a plan can switch to them
+# ("procedi") without redoing guided tasks. It records trees, not commits:
+# in guided mode your human partner commits when they choose.
+#
+# Usage: guided-task-done PLAN_FILE TASK_NUMBER BASE -- TEST_COMMAND [ARGS...]
+#   BASE is the tree SHA guided-task-start printed.
+# Prints (after the test tail, on success):
+#   <git diff --stat of the task>
+#   ledger: <the line appended>
+#   diff: <path to the task's full diff>
+#   report: <path where the task's report goes>
+# Exit: the test command's exit status; 2 on bad arguments or a BASE that is
+# not a tree.
+set -euo pipefail
+
+if [ $# -lt 5 ] || [ "$4" != "--" ]; then
+  echo "usage: guided-task-done PLAN_FILE TASK_NUMBER BASE -- TEST_COMMAND [ARGS...]" >&2
+  exit 2
+fi
+
+plan=$1
+n=$2
+base=$3
+shift 4
+here="$(cd "$(dirname "$0")" && pwd)"
+sdd="$(cd "$here/../../subagent-driven-development/scripts" && pwd)"
+
+repo=$("${BASH:-bash}" "$sdd/sdd-repo" --with-commit)
+if [ "$(git -C "$repo" cat-file -t "$base" 2>/dev/null)" != "tree" ]; then
+  echo "bad BASE (not a tree from guided-task-start): $base" >&2
+  exit 2
+fi
+
+dir=$("${BASH:-bash}" "$sdd/sdd-workspace" "$plan")
+log="$dir/task-${n}-tests.log"
+ledger="$dir/progress.md"
+
+# Render the command the way a person would type it, for the ledger line.
+cmd=""
+for a in "$@"; do
+  case "$a" in
+    *[[:space:]\"\;\|\&]*) cmd="$cmd '$a'" ;;
+    *) cmd="$cmd $a" ;;
+  esac
+done
+cmd=${cmd# }
+
+rc=0
+"$@" > "$log" 2>&1 || rc=$?
+
+tail -n 5 "$log"
+if [ "$rc" -ne 0 ]; then
+  echo "guided-task-done: test command exited $rc; Task $n NOT recorded (full output: $log)" >&2
+  exit "$rc"
+fi
+
+# Snapshot after the tests: anything they leave behind (and .gitignore does
+# not hide) is part of what the partner will see in the working tree.
+new=$("${BASH:-bash}" "$here/guided-snapshot")
+diff_file="$dir/task-${n}.diff"
+git -C "$repo" diff --no-ext-diff "$base" "$new" > "$diff_file"
+git -C "$repo" diff --no-ext-diff --stat "$base" "$new"
+
+last=$(grep -v '^[[:space:]]*$' "$log" | tail -n 1) || last="(no output)"
+[ -f "$ledger" ] || printf '# SDD ledger — plan: %s\n' "$plan" > "$ledger"
+# Closing a task again (after a change the partner asked for) replaces its
+# earlier completion line: one task, one line, the latest trees.
+if grep -q "^Task $n: complete (guided, " "$ledger"; then
+  grep -v "^Task $n: complete (guided, " "$ledger" > "$ledger.tmp" || true
+  mv "$ledger.tmp" "$ledger"
+fi
+line="Task $n: complete (guided, uncommitted, trees ${base:0:7}..${new:0:7}, tests: $cmd → $last)"
+printf '%s\n' "$line" >> "$ledger"
+
+case "$n" in
+  [0-9]) report_n="0$n" ;;
+  *) report_n="$n" ;;
+esac
+echo "ledger: $line"
+echo "diff: $diff_file"
+echo "report: $dir/reports/task-${report_n}.md"
